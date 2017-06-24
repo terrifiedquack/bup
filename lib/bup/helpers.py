@@ -325,11 +325,17 @@ def detect_fakeroot():
 _warned_about_superuser_detection = None
 def is_superuser():
     if sys.platform.startswith('cygwin'):
-        if sys.getwindowsversion()[0] > 5:
-            # Sounds like situation is much more complicated here
+        msg = None
+        getwv = getattr(sys, 'getwindowsversion', None)
+        if not getwv:
+            msg = "don't know how to detect root status; assuming not root"
+        elif getwv()[0] > 5:
+            # Sounds like the situation is much more complicated for > 5
+            msg = "can't detect root status for OS version > 5; assuming not root"
+        if msg:
             global _warned_about_superuser_detection
             if not _warned_about_superuser_detection:
-                log("can't detect root status for OS version > 5; assuming not root")
+                log(msg)
                 _warned_about_superuser_detection = True
             return False
         import ctypes
