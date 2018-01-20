@@ -24,6 +24,9 @@ if py3:
     def items(x):
         return x.items()
 
+    def rb(x):
+        return x.encode('ascii')
+
 else:  # Python 2
 
     str_type = basestring
@@ -64,6 +67,9 @@ else:  # Python 2
 
     def items(x):
         return x.iteritems()
+
+    def rb(x):
+        return x
 
 
 def wrap_main(main):

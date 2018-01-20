@@ -35,8 +35,8 @@ os.environ['BUP_MAIN_EXE'] = os.path.abspath(exe)
 os.environ['BUP_RESOURCE_PATH'] = resourcepath
 
 
-from bup import helpers
-from bup.compat import add_ex_tb, chain_ex, wrap_main
+from bup import compat, helpers
+from bup.compat import add_ex_tb, chain_ex, rb, wrap_main
 from bup.helpers import atoi, columnate, debug1, log, tty_width
 
 
@@ -148,7 +148,7 @@ def force_tty():
         os.environ['BUP_FORCE_TTY'] = str(amt)
 
 
-sep_rx = re.compile(r'([\r\n])')
+sep_rx = re.compile(rb(r'([\r\n])'))
 
 def print_clean_line(dest, content, width, sep=None):
     """Write some or all of content, followed by sep, to the dest fd after
@@ -156,19 +156,19 @@ def print_clean_line(dest, content, width, sep=None):
     terminal width or truncating it to the terminal width if sep is a
     carriage return."""
     global sep_rx
-    assert sep in ('\r', '\n', None)
+    assert sep in (b'\r', b'\n', None)
     if not content:
         if sep:
             os.write(dest, sep)
         return
     for x in content:
         assert not sep_rx.match(x)
-    content = ''.join(content)
-    if sep == '\r' and len(content) > width:
+    content = b''.join(content)
+    if sep == b'\r' and len(content) > width:
         content = content[width:]
     os.write(dest, content)
     if len(content) < width:
-        os.write(dest, ' ' * (width - len(content)))
+        os.write(dest, b' ' * (width - len(content)))
     os.write(dest, sep)
 
 def filter_output(src_out, src_err, dest_out, dest_err):
