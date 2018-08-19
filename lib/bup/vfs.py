@@ -68,6 +68,49 @@ class IOError(exceptions.IOError):
         exceptions.IOError.__init__(self, errno, message)
         self.terminus = terminus
 
+def repo_obj(repo, *args, **kwargs):
+    """If called with oid=oid, then return (obj_type, obj_data).  If
+    called with ref=ref, then return (obj_type, obj_data, oid).
+    Return None if the oid or ref doesn't exist.  For the 'tree' type,
+    return the result of tree_decode(), otherwise return the git blob.
+    May cache results for future use.
+
+    """
+    # Until we can depend on support for keyword-only arguments...
+    assert not args
+    assert len(kwargs) == 1
+    ref = kwargs.get('ref')
+    oid = kwargs.get('oid')
+    assert oid or ref
+    assert (not oid) or len(oid) == 20
+    cache_key = (b'tro:' + oid) if oid else (b'ref:%d:%s' % (repo.id(), ref))
+    item = cache_get(cache_key)
+    if item:
+        return item
+
+    it = repo.cat(ref if ref else oid.encode('hex'))
+    oidx, obj_t, size = next(it)
+    if not oidx:
+        for _ in it: pass
+        return None
+    if not oid:
+        oid = oidx.decode('hex')
+    data = ''.join(it)
+    if obj_t != 'tree':
+        # For now, we only cache trees...
+        if ref:
+            return obj_t, data, oid
+        return obj_t, data
+
+    entries = tuple(tree_decode(data))
+    if ref:
+        cache_notice(b'tro:' + oidx.decode('hex'), (obj_t, entries))
+        result = obj_t, entries, oid
+    else:
+        result = obj_t, entries
+    cache_notice(cache_key, result)
+    return result
+
 default_file_mode = S_IFREG | 0o644
 default_dir_mode = S_IFDIR | 0o755
 default_symlink_mode = S_IFLNK | 0o755
@@ -84,15 +127,13 @@ def _default_mode_for_gitmode(gitmode):
 def _normal_or_chunked_file_size(repo, oid):
     """Return the size of the normal or chunked file indicated by oid."""
     # FIXME: --batch-format CatPipe?
-    it = repo.cat(oid.encode('hex'))
-    _, obj_t, size = next(it)
+    obj_t, obj = repo_obj(repo, oid=oid)
     ofs = 0
     while obj_t == 'tree':
-        mode, name, last_oid = last(tree_decode(''.join(it)))
+        mode, name, last_oid = last(obj)
         ofs += int(name, 16)
-        it = repo.cat(last_oid.encode('hex'))
-        _, obj_t, size = next(it)
-    return ofs + sum(len(b) for b in it)
+        obj_t, obj = repo_obj(repo, oid=last_oid)
+    return ofs + len(obj)
 
 def _tree_chunks(repo, tree, startofs):
     "Tree should be a sequence of (name, mode, hash) as per tree_decode()."
@@ -104,29 +145,25 @@ def _tree_chunks(repo, tree, startofs):
         skipmore = startofs - ofs
         if skipmore < 0:
             skipmore = 0
-        it = repo.cat(oid.encode('hex'))
-        _, obj_t, size = next(it)
-        data = ''.join(it)            
+        obj_t, obj = repo_obj(repo, oid=oid)
         if S_ISDIR(mode):
             assert obj_t == 'tree'
-            for b in _tree_chunks(repo, tree_decode(data), skipmore):
+            for b in _tree_chunks(repo, obj, skipmore):
                 yield b
         else:
             assert obj_t == 'blob'
-            yield data[skipmore:]
+            yield obj[skipmore:]
 
 class _ChunkReader:
     def __init__(self, repo, oid, startofs):
-        it = repo.cat(oid.encode('hex'))
-        _, obj_t, size = next(it)
+        obj_t, obj = repo_obj(repo, oid=oid)
         isdir = obj_t == 'tree'
-        data = ''.join(it)
         if isdir:
-            self.it = _tree_chunks(repo, tree_decode(data), startofs)
+            self.it = _tree_chunks(repo, obj, startofs)
             self.blob = None
         else:
             self.it = None
-            self.blob = data[startofs:]
+            self.blob = obj[startofs:]
         self.ofs = startofs
 
     def next(self, size):
@@ -250,20 +287,29 @@ def clear_cache():
     _cache = {}
     _cache_keys = []
 
+# Do we want this to more closely match git's ref restrictions?
+_ref_key_rx = re.compile(r'^ref:[0-9]+:[^\0]+$')
+
 def is_valid_cache_key(x):
     """Return logically true if x looks like it could be a valid cache key
     (with respect to structure).  Current valid cache entries:
       res:... -> resolution
       itm:OID -> Commit
       rvl:OID -> {'.', commit, '2012...', next_commit, ...}
+      tro:OID -> ('tree', tree_decode() items)
+      ref:REPO_ID:REF -> ('tree', tree_decode() items)
+                      -> ...for now only trees are supported...
     """
+    global _ref_key_rx
     # Suspect we may eventually add "(container_oid, name) -> ...", and others.
     x_t = type(x)
     if x_t is bytes:
         tag = x[:4]
-        if tag in ('itm:', 'rvl:') and len(x) == 24:
+        if tag in ('itm:', 'rvl:', 'tro:') and len(x) == 24:
             return True
-        if tag == 'res:':
+        if x.startswith('res:'):
+            return True
+        if _ref_key_rx.match(x):
             return True
 
 def cache_get(key):
@@ -343,23 +389,19 @@ def tree_data_and_bupm(repo, oid):
 
     """    
     assert len(oid) == 20
-    it = repo.cat(oid.encode('hex'))
-    _, item_t, size = next(it)
-    data = ''.join(it)
-    if item_t == 'commit':
-        commit = parse_commit(data)
-        it = repo.cat(commit.tree)
-        _, item_t, size = next(it)
-        data = ''.join(it)
-        assert item_t == 'tree'
-    elif item_t != 'tree':
+    obj_t, obj = repo_obj(repo, oid=oid)
+    if obj_t == 'commit':
+        commit = parse_commit(obj)
+        obj_t, obj = repo_obj(repo, oid=commit.tree.decode('hex'))
+        assert obj_t == 'tree'
+    elif obj_t != 'tree':
         raise Exception('%r is not a tree or commit' % oid.encode('hex'))
-    for _, mangled_name, sub_oid in tree_decode(data):
+    for _, mangled_name, sub_oid in obj:
         if mangled_name == '.bupm':
-            return data, sub_oid
+            return obj, sub_oid
         if mangled_name > '.bupm':
             break
-    return data, None
+    return obj, None
 
 def _find_treeish_oid_metadata(repo, oid):
     """Return the metadata for the tree or commit oid, or None if the tree
@@ -422,10 +464,9 @@ def _commit_item_from_oid(repo, oid, require_meta):
     commit = cache_get_commit_item(oid, need_meta=require_meta)
     if commit and ((not require_meta) or isinstance(commit.meta, Metadata)):
         return commit
-    it = repo.cat(oid.encode('hex'))
-    _, typ, size = next(it)
-    assert typ == 'commit'
-    commit = _commit_item_from_data(oid, ''.join(it))
+    obj_t, obj = repo_obj(repo, oid=oid)
+    assert obj_t == 'commit'
+    commit = _commit_item_from_data(oid, obj)
     if require_meta:
         meta = _find_treeish_oid_metadata(repo, commit.oid)
         if meta:
@@ -465,16 +506,15 @@ def root_items(repo, names=None, want_meta=True):
     for ref in names:
         if ref in ('.', '.tag'):
             continue
-        it = repo.cat('refs/heads/' + ref)
-        oidx, typ, size = next(it)
-        if not oidx:
-            for _ in it: pass
+        info = repo_obj(repo, ref='refs/heads/' + ref)
+        if not info:
             continue
-        assert typ == 'commit'
-        commit = parse_commit(''.join(it))
-        yield ref, _revlist_item_from_oid(repo, oidx.decode('hex'), want_meta)
+        obj_t, obj, oid = info
+        assert obj_t == 'commit'
+        commit = parse_commit(obj)
+        yield ref, _revlist_item_from_oid(repo, oid, want_meta)
 
-def ordered_tree_entries(tree_data, bupm=None):
+def ordered_tree_entries(tree_entries, bupm=None):
     """Yields (name, mangled_name, kind, gitmode, oid) for each item in
     tree, sorted by name.
 
@@ -489,13 +529,13 @@ def ordered_tree_entries(tree_data, bupm=None):
         name, kind = git.demangle_name(mangled_name, gitmode)
         return name, mangled_name, kind, gitmode, oid
 
-    tree_ents = (result_from_tree_entry(x) for x in tree_decode(tree_data))
+    tree_ents = (result_from_tree_entry(x) for x in tree_entries)
     if bupm:
         tree_ents = sorted(tree_ents, key=lambda x: x[0])
     for ent in tree_ents:
         yield ent
     
-def tree_items(oid, tree_data, names=frozenset(), bupm=None):
+def tree_items(oid, tree_entries, names=frozenset(), bupm=None):
 
     def tree_item(ent_oid, kind, gitmode):
         if kind == BUP_CHUNKED:
@@ -514,7 +554,7 @@ def tree_items(oid, tree_data, names=frozenset(), bupm=None):
     if not names:
         dot_meta = _read_dir_meta(bupm) if bupm else default_dir_mode
         yield '.', Item(oid=oid, meta=dot_meta)
-        tree_entries = ordered_tree_entries(tree_data, bupm)
+        tree_entries = ordered_tree_entries(tree_entries, bupm)
         for name, mangled_name, kind, gitmode, ent_oid in tree_entries:
             if mangled_name == '.bupm':
                 continue
@@ -538,7 +578,7 @@ def tree_items(oid, tree_data, names=frozenset(), bupm=None):
             return
         remaining -= 1
 
-    tree_entries = ordered_tree_entries(tree_data, bupm)
+    tree_entries = ordered_tree_entries(tree_entries, bupm)
     for name, mangled_name, kind, gitmode, ent_oid in tree_entries:
         if mangled_name == '.bupm':
             continue
@@ -554,19 +594,19 @@ def tree_items(oid, tree_data, names=frozenset(), bupm=None):
             break
         remaining -= 1
 
-def tree_items_with_meta(repo, oid, tree_data, names):
+def tree_items_with_meta(repo, oid, tree_entries, names):
     # For now, the .bupm order doesn't quite match git's, and we don't
     # load the tree data incrementally anyway, so we just work in RAM
     # via tree_data.
     assert len(oid) == 20
     bupm = None
-    for _, mangled_name, sub_oid in tree_decode(tree_data):
+    for _, mangled_name, sub_oid in tree_entries:
         if mangled_name == '.bupm':
             bupm = _FileReader(repo, sub_oid)
             break
         if mangled_name > '.bupm':
             break
-    for item in tree_items(oid, tree_data, names, bupm):
+    for item in tree_items(oid, tree_entries, names, bupm):
         yield item
 
 _save_name_rx = re.compile(r'^\d\d\d\d-\d\d-\d\d-\d{6}(-\d+)?$')
@@ -668,22 +708,19 @@ def tags_items(repo, names):
 
     def tag_item(oid):
         assert len(oid) == 20
-        oidx = oid.encode('hex')
-        it = repo.cat(oidx)
-        _, typ, size = next(it)
-        if typ == 'commit':
+        obj_t, obj = repo_obj(repo, oid=oid)
+        if obj_t == 'commit':
             return cache_get_commit_item(oid, need_meta=False) \
-                or _commit_item_from_data(oid, ''.join(it))
-        for _ in it: pass
-        if typ == 'blob':
+                or _commit_item_from_data(oid, obj)
+        if obj_t == 'blob':
             return Item(meta=default_file_mode, oid=oid)
-        elif typ == 'tree':
+        elif obj_t == 'tree':
             return Item(meta=default_dir_mode, oid=oid)
-        raise Exception('unexpected tag type ' + typ + ' for tag ' + name)
+        raise Exception('unexpected tag type ' + obj_t + ' for tag ' + name)
 
     if not names:
         yield '.', _tags
-        # We have to pull these all into ram because tag_item calls cat()
+        # We have to pull these all into ram because tag_item calls repo_obj()
         for name, oid in tuple(repo.refs(names, limit_to_tags=True)):
             assert(name.startswith('refs/tags/'))
             name = name[10:]
@@ -740,18 +777,16 @@ def contents(repo, item, names=None, want_meta=True):
     assert S_ISDIR(item_mode(item))
     item_t = type(item)
     if item_t in real_tree_types:
-        it = repo.cat(item.oid.encode('hex'))
-        _, obj_t, size = next(it)
-        data = ''.join(it)
+        obj_t, obj = repo_obj(repo, oid=item.oid)
         if obj_t != 'tree':
             for _ in it: pass
             # Note: it shouldn't be possible to see an Item with type
             # 'commit' since a 'commit' should always produce a Commit.
             raise Exception('unexpected git ' + obj_t)
         if want_meta:
-            item_gen = tree_items_with_meta(repo, item.oid, data, names)
+            item_gen = tree_items_with_meta(repo, item.oid, obj, names)
         else:
-            item_gen = tree_items(item.oid, data, names)
+            item_gen = tree_items(item.oid, obj, names)
     elif item_t == RevList:
         item_gen = revlist_items(repo, item.oid, names)
     elif item_t == Root:
