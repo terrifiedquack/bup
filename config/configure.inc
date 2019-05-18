@@ -29,6 +29,7 @@
 #  THE POSSIBILITY OF SUCH DAMAGE.
 #
 
+TMPDIR=${TMPDIR:=/tmp}
 
 #
 # this preamble code is executed when this file is sourced and it picks
@@ -290,15 +291,15 @@ AC_CONTINUE () {
 AC_CHECK_HEADERS () {
     AC_PROG_CC
 
-    echo "/* AC_CHECK_HEADERS */" > /tmp/ngc$$.c
+    echo "/* AC_CHECK_HEADERS */" > ${TMPDIR}/ngc$$.c
     for hdr in $*; do
-	echo "#include <$hdr>" >> /tmp/ngc$$.c
+	echo "#include <$hdr>" >> ${TMPDIR}/ngc$$.c
     done
-    echo "main() { }" >> /tmp/ngc$$.c
+    echo "main() { }" >> ${TMPDIR}/ngc$$.c
 
     LOGN "checking for header $hdr"
 
-    if $AC_CC -o /tmp/ngc$$ /tmp/ngc$$.c; then
+    if $AC_CC -o ${TMPDIR}/ngc$$ ${TMPDIR}/ngc$$.c; then
 	AC_DEFINE 'HAVE_'`echo $hdr | tr 'a-z' 'A-Z' | tr './' '_'` 1
 	TLOG " (found)"
 	rc=0
@@ -306,7 +307,7 @@ AC_CHECK_HEADERS () {
 	TLOG " (not found)"
 	rc=1
     fi
-    rm -f /tmp/ngc$$.c /tmp/ngc$$
+    rm -f ${TMPDIR}/ngc$$.c ${TMPDIR}/ngc$$
     return $rc
 }
 
@@ -319,14 +320,14 @@ AC_CHECK_FUNCS () {
 
 F=$1
 shift
-rm -f /tmp/ngc$$.c
+rm -f ${TMPDIR}/ngc$$.c
 
 while [ "$1" ]; do
-    echo "#include <$1>" >> /tmp/ngc$$.c
+    echo "#include <$1>" >> ${TMPDIR}/ngc$$.c
     shift
 done
 
-    cat >> /tmp/ngc$$.c << EOF
+    cat >> ${TMPDIR}/ngc$$.c << EOF
 main()
 {
 
@@ -336,18 +337,18 @@ EOF
 
     LOGN "checking for the $F function"
 
-    if $AC_CC -o /tmp/ngc$$ /tmp/ngc$$.c $LIBS; then
+    if $AC_CC -o ${TMPDIR}/ngc$$ ${TMPDIR}/ngc$$.c $LIBS; then
 	AC_DEFINE `echo ${2:-HAVE_$F} | tr 'a-z' 'A-Z'` 1
 	TLOG " (found)"
 	rc=0
     else
 	echo "offending command was:"
-	cat /tmp/ngc$$.c
-	echo "$AC_CC -o /tmp/ngc$$ /tmp/ngc$$.c $LIBS"
+	cat ${TMPDIR}/ngc$$.c
+	echo "$AC_CC -o ${TMPDIR}/ngc$$ ${TMPDIR}/ngc$$.c $LIBS"
 	TLOG " (not found)"
 	rc=1
     fi
-    rm -f /tmp/ngc$$.c /tmp/ngc$$
+    rm -f ${TMPDIR}/ngc$$.c ${TMPDIR}/ngc$$
     return $rc
 }
 
@@ -362,13 +363,13 @@ AC_CHECK_STRUCT () {
     struct=$1
     shift
 
-    rm -f /tmp/ngc$$.c
+    rm -f ${TMPDIR}/ngc$$.c
 
     for include in $*; do
-	echo "#include <$include>" >> /tmp/ngc$$.c
+	echo "#include <$include>" >> ${TMPDIR}/ngc$$.c
     done
 
-    cat >> /tmp/ngc$$.c << EOF
+    cat >> ${TMPDIR}/ngc$$.c << EOF
 main()
 {
     struct $struct foo;
@@ -377,7 +378,7 @@ EOF
 
     LOGN "checking for struct $struct"
 
-    if $AC_CC -o /tmp/ngc$$ /tmp/ngc$$.c $AC_LIBS 2>>config.log; then
+    if $AC_CC -o ${TMPDIR}/ngc$$ ${TMPDIR}/ngc$$.c $AC_LIBS 2>>config.log; then
 	AC_DEFINE HAVE_STRUCT_`echo ${struct} | tr 'a-z' 'A-Z'`
 	TLOG " (found)"
 	rc=0
@@ -385,7 +386,7 @@ EOF
 	TLOG " (not found)"
 	rc=1
     fi
-    rm -f /tmp/ngc$$.c /tmp/ngc$$
+    rm -f ${TMPDIR}/ngc$$.c ${TMPDIR}/ngc$$
     return $rc
 }
 
@@ -402,13 +403,13 @@ AC_CHECK_FIELD () {
     field=$2
     shift 2
 
-    rm -f /tmp/ngc$$.c
+    rm -f ${TMPDIR}/ngc$$.c
 
     for include in $*;do
-	echo "#include <$include>" >> /tmp/ngc$$.c
+	echo "#include <$include>" >> ${TMPDIR}/ngc$$.c
     done
 
-    cat >> /tmp/ngc$$.c << EOF
+    cat >> ${TMPDIR}/ngc$$.c << EOF
 main()
 {
     struct $struct foo;
@@ -419,7 +420,7 @@ EOF
 
     LOGN "checking that struct $struct has a $field field"
 
-    if $AC_CC -o /tmp/ngc$$ /tmp/ngc$$.c $AC_LIBS 2>>config.log; then
+    if $AC_CC -o ${TMPDIR}/ngc$$ ${TMPDIR}/ngc$$.c $AC_LIBS 2>>config.log; then
 	AC_DEFINE HAVE_`echo ${struct}_$field | tr 'a-z' 'A-Z'`
 	TLOG " (yes)"
 	rc=0
@@ -427,7 +428,7 @@ EOF
 	TLOG " (no)"
 	rc=1
     fi
-    rm -f /tmp/ngc$$.c /tmp/ngc$$
+    rm -f ${TMPDIR}/ngc$$.c ${TMPDIR}/ngc$$
     return $rc
 }
 
@@ -438,7 +439,7 @@ EOF
 AC_PROG_CC () {
     test "$AC_CC" && return 0
 
-    cat > /tmp/ngc$$.c << \EOF
+    cat > ${TMPDIR}/ngc$$.c << \EOF
 #include <stdio.h>
 main()
 {
@@ -469,7 +470,7 @@ EOF
     fi
     echo "checking out the C compiler"
 
-    $AC_CC -o /tmp/ngc$$ /tmp/ngc$$.c
+    $AC_CC -o ${TMPDIR}/ngc$$ ${TMPDIR}/ngc$$.c
     status=$?
 
     TLOGN " ($AC_CC)"
@@ -482,7 +483,7 @@ EOF
 
 	if [ "$CFLAGS" ]; then
 	    test "$CFLAGS" && echo "validating CFLAGS=${CFLAGS}"
-	    if $AC_CC $CFLAGS -o /tmp/ngc$$.o /tmp/ngc$$.c ; then
+	    if $AC_CC $CFLAGS -o ${TMPDIR}/ngc$$.o ${TMPDIR}/ngc$$.c ; then
 		AC_CFLAGS=${CFLAGS:-"-g"}
 		test "$CFLAGS" && echo "CFLAGS=\"${CFLAGS}\" are okay"
 	    elif [ "$CFLAGS" ]; then
@@ -493,7 +494,7 @@ EOF
 	fi
 	if [ "$LDFLAGS" ]; then
 	    test "$LDFLAGS" && echo "validating LDFLAGS=${LDFLAGS}"
-	    if $AC_CC $LDFLAGS -o /tmp/ngc$$ /tmp/ngc$$.o; then
+	    if $AC_CC $LDFLAGS -o ${TMPDIR}/ngc$$ ${TMPDIR}/ngc$$.o; then
 		AC_LDFLAGS=${LDFLAGS:-"-g"}
 		test "$LDFLAGS" && TLOG "LDFLAGS=\"${LDFLAGS}\" are okay"
 	    elif [ "$LDFLAGS" ]; then
@@ -508,7 +509,7 @@ EOF
 
     AC_SUB 'CC' "$AC_CC"
 
-    rm -f /tmp/ngc$$ /tmp/ngc$$.c /tmp/ngc$$.o
+    rm -f ${TMPDIR}/ngc$$ ${TMPDIR}/ngc$$.c ${TMPDIR}/ngc$$.o
 
     return $status
 }
@@ -781,18 +782,18 @@ AC_PROG_LN_S () {
     DEST=`acLookFor ln`
 
     if [ "$DEST" ]; then
-	rm -f /tmp/b$$
-	$DEST -s /tmp/a$$ /tmp/b$$
-	if [ "`$AC_FIND_PROG /tmp/b$$ -type l -print`" ]; then
+	rm -f ${TMPDIR}/b$$
+	$DEST -s ${TMPDIR}/a$$ ${TMPDIR}/b$$
+	if [ "`$AC_FIND_PROG ${TMPDIR}/b$$ -type l -print`" ]; then
 	    TLOG " ($DEST)"
 	    echo "$DEST exists, and ln -s works"
 	    AC_SUB 'LN_S' "$DEST -s"
-	    rm -f /tmp/b$$
+	    rm -f ${TMPDIR}/b$$
 	else
 	    AC_SUB 'LN_S' ''
 	    TLOG " ($DEST exists, but -s does not seem to work)"
 	    echo "$DEST exists, but ln -s doesn't seem to work"
-	    rm -f /tmp/b$$
+	    rm -f ${TMPDIR}/b$$
 	    return 1
 	fi
     else
@@ -860,14 +861,14 @@ AC_HEADER_SYS_WAIT () {
 # AC_TYPE_PID_T checks to see if the pid_t type exists
 #
 AC_TYPE_PID_T () {
-    cat > /tmp/pd$$.c << EOF
+    cat > ${TMPDIR}/pd$$.c << EOF
 #include <sys/types.h>
 main() { pid_t me; }
 EOF
 
     LOGN "checking for pid_t"
 
-    if $AC_CC -c /tmp/pd$$.c -o /tmp/pd$$.o; then
+    if $AC_CC -c ${TMPDIR}/pd$$.c -o ${TMPDIR}/pd$$.o; then
 	TLOG " (found)"
 	rc=0
     else
@@ -875,7 +876,7 @@ EOF
 	TLOG " (not found)"
 	rc=1
     fi
-    rm -f /tmp/pd$$.o /tmp/pd$$.c
+    rm -f ${TMPDIR}/pd$$.o ${TMPDIR}/pd$$.c
     return $rc
 }
 
@@ -884,12 +885,12 @@ EOF
 # AC_C_CONST checks to see if the compiler supports the const keyword
 #
 AC_C_CONST () {
-    cat > /tmp/pd$$.c << EOF
+    cat > ${TMPDIR}/pd$$.c << EOF
 const char me=1;
 EOF
     LOGN "checking for \"const\" keyword"
 
-    if $AC_CC -c /tmp/pd$$.c -o /tmp/pd$$.o; then
+    if $AC_CC -c ${TMPDIR}/pd$$.c -o ${TMPDIR}/pd$$.o; then
 	TLOG " (yes)"
 	rc=0
     else
@@ -897,7 +898,7 @@ EOF
 	TLOG " (no)"
 	rc=1
     fi
-    rm -f /tmp/pd$$.o /tmp/pd$$.c
+    rm -f ${TMPDIR}/pd$$.o ${TMPDIR}/pd$$.c
     return $rc
 }
 
@@ -906,7 +907,7 @@ EOF
 # AC_SCALAR_TYPES checks to see if the compiler can generate 2 and 4 byte ints.
 #
 AC_SCALAR_TYPES () {
-    cat > /tmp/pd$$.c << EOF
+    cat > ${TMPDIR}/pd$$.c << EOF
 #include <stdio.h>
 main()
 {
@@ -933,8 +934,8 @@ main()
 EOF
     rc=1
     LOGN "defining WORD & DWORD scalar types"
-    if $AC_CC /tmp/pd$$.c -o /tmp/pd$$; then
-	if /tmp/pd$$  >> $__cwd/config.h.tmp; then
+    if $AC_CC ${TMPDIR}/pd$$.c -o ${TMPDIR}/pd$$; then
+	if ${TMPDIR}/pd$$  >> $__cwd/config.h.tmp; then
 	    rc=0
 	fi
     fi
@@ -942,7 +943,7 @@ EOF
     0) TLOG "" ;;
     *) TLOG " ** FAILED **" ;;
     esac
-    rm -f /tmp/pd$$ /tmp/pd$$.c
+    rm -f ${TMPDIR}/pd$$ ${TMPDIR}/pd$$.c
 }
 
 
@@ -1061,7 +1062,7 @@ AC_CHECK_RESOLVER () {
 
     TLOGN "checking for the Berkeley resolver library"
 
-    cat > /tmp/ngc$$.c << EOF
+    cat > ${TMPDIR}/ngc$$.c << EOF
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/nameser.h>
@@ -1078,21 +1079,21 @@ EOF
 
     # first see if res_init() and res_query() actually exist...
 
-    if $AC_CC -o /tmp/ngc$$ /tmp/ngc$$.c; then
+    if $AC_CC -o ${TMPDIR}/ngc$$ ${TMPDIR}/ngc$$.c; then
 	__extralib=
-    elif $AC_CC -o /tmp/ngc$$ /tmp/ngc$$.c -lresolv; then
+    elif $AC_CC -o ${TMPDIR}/ngc$$ ${TMPDIR}/ngc$$.c -lresolv; then
 	__extralib=-lresolv
 	AC_LIBS="$AC_LIBS -lresolv"
     else
 	TLOG " (not found)"
-	rm -f /tmp/ngc$$.c
+	rm -f ${TMPDIR}/ngc$$.c
 	return 1
     fi
 
     # if res_init() and res_query() actually exist, check to
     # see if the HEADER structure is defined ...
 
-    cat > /tmp/ngc$$.c << EOF
+    cat > ${TMPDIR}/ngc$$.c << EOF
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/nameser.h>
@@ -1105,17 +1106,17 @@ main()
 }
 EOF
 
-    if $AC_CC -o /tmp/ngc$$ /tmp/ngc$$.c $__extralib; then
+    if $AC_CC -o ${TMPDIR}/ngc$$ ${TMPDIR}/ngc$$.c $__extralib; then
 	TLOG " (found)"
-    elif $AC_CC -DBIND_8_COMPAT -o /tmp/ngc$$ /tmp/ngc$$.c $__extralib; then
+    elif $AC_CC -DBIND_8_COMPAT -o ${TMPDIR}/ngc$$ ${TMPDIR}/ngc$$.c $__extralib; then
 	TLOG " (bind9 with BIND_8_COMPAT)"
 	AC_DEFINE BIND_8_COMPAT 1
     else
 	TLOG " (broken)"
-	rm -f /tmp/ngc$$.c
+	rm -f ${TMPDIR}/ngc$$.c
 	return 1
     fi
-    rm -f /tmp/ngc$$.c
+    rm -f ${TMPDIR}/ngc$$.c
     return 0
 }
 
@@ -1132,17 +1133,17 @@ AC_PROG_INSTALL () {
     unset IS_BSD
     if [ "$DEST" ]; then
 	# BSD install or GNU install?  Let's find out...
-	touch /tmp/a$$
+	touch ${TMPDIR}/a$$
 
-	$DEST /tmp/a$$ /tmp/b$$
+	$DEST ${TMPDIR}/a$$ ${TMPDIR}/b$$
 
-	if test -r /tmp/a$$; then
+	if test -r ${TMPDIR}/a$$; then
 	    LOG " ($DEST)"
 	else
 	    IS_BSD=1
 	    LOG " ($DEST) bsd install"
 	fi
-	rm -f /tmp/a$$ /tmp/b$$
+	rm -f ${TMPDIR}/a$$ ${TMPDIR}/b$$
     else
 	DEST=`acLookFor ginstall`
 	if [ "$DEST" ]; then
@@ -1208,22 +1209,22 @@ EOD
 # compiler options
 #
 acCheckCPP () {
-	cat > /tmp/ngc$$.c << EOF
+	cat > ${TMPDIR}/ngc$$.c << EOF
 #define FOO BAR
 
 FOO
 EOF
 
-    if $1 $2 /tmp/ngc$$.c > /tmp/ngc$$.o; then
-	if grep -v '#define' /tmp/ngc$$.o | grep -s BAR >/dev/null; then
+    if $1 $2 ${TMPDIR}/ngc$$.c > ${TMPDIR}/ngc$$.o; then
+	if grep -v '#define' ${TMPDIR}/ngc$$.o | grep -s BAR >/dev/null; then
 	    echo "CPP=[$1], CPPFLAGS=[$2]"
 	    AC_SUB 'CPP' "$1"
 	    AC_SUB 'CPPFLAGS' "$2"
-	    rm /tmp/ngc$$.c /tmp/ngc$$.o
+	    rm ${TMPDIR}/ngc$$.c ${TMPDIR}/ngc$$.o
 	    return 0
 	fi
     fi
-    rm /tmp/ngc$$.c /tmp/ngc$$.o
+    rm ${TMPDIR}/ngc$$.c ${TMPDIR}/ngc$$.o
     return 1
 }
 

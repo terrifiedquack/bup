@@ -7,6 +7,13 @@
 //   http://docs.python.org/2/c-api/intro.html#include-files
 #include <Python.h>
 
+#ifdef __ANDROID_API__
+#if __ANDROID_API__ < 26
+#undef HAVE_LUTIMES
+#endif
+#include <sys/time.h>
+#endif
+
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
